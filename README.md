@@ -31,7 +31,7 @@ package.
 ## Commands
 
 ```powershell
-cd "C:\Users\L-Tyr\OneDrive\Escritorio\-=L.R.GONZALEZ=-\packages\open-dev\obsai-core"
+cd obsai-core
 python -m obsai_core.cli triage --signals circularity corrections unresolved_tasks
 python -m obsai_core.cli evaluate-action examples\action_review.json
 python -m obsai_core.cli fingerprint --session-id demo-001
