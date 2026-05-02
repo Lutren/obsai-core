@@ -1,5 +1,11 @@
 # obsai-core
 
+Dependency-free evidence core for local-first AI agents.
+
+`obsai-core` is designed for builders who need AI systems to leave proof before
+they act: observation envelopes, provenance notes, residue signals, claim gates,
+session fingerprints, and small deterministic test fixtures.
+
 `obsai-core` is the public-safe operational core extracted selectively from:
 
 - `observacionismo_ai_os_fullstack.zip`
@@ -19,6 +25,20 @@ package.
 - generates stable session fingerprints;
 - runs a deterministic world simulation smoke;
 - exposes a CLI with JSON output.
+
+## Problems It Helps With
+
+- Hallucination control: unsupported scientific or product claims can be routed
+  to `BLOCK` unless evidence is attached.
+- Memory drift: session fingerprints and observation envelopes make it easier
+  to resume work with verifiable context instead of chat recollection.
+- Agent sprawl: actions, evidence, RAG candidates, and capabilities move through
+  one small dependency-free contract.
+- Release discipline: demo thresholds stay labeled as `DEMO_ONLY` until real
+  calibration data exists.
+
+Search terms: AI agent memory, hallucination reduction, evidence envelopes,
+local-first AI, ActionGate, provenance, audit trail, agent governance.
 
 ## Claims Boundary
 
