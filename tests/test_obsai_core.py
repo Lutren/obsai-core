@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from obsai_core.fingerprint import stable_fingerprint
 from obsai_core.gate import evaluate_action
 from obsai_core.metrics import Regime, estimate_regime, estimate_residue_from_signals
+from obsai_core.ontology import ObservationEnvelope, ObservationEnvelopeStore, OntologyGraph, PACReasoner
 from obsai_core.transduction import (
     CapabilityReceptor,
     RAGCalibrationRouter,
@@ -83,6 +85,65 @@ class GateTests(unittest.TestCase):
         self.assertEqual(decision["status"], "BLOCK")
         self.assertIn("authorized_receptor_required", decision["reasons"])
 
+    def test_gate_blocks_scientific_claim_without_verified_evidence(self) -> None:
+        action = {
+            **GOOD_ACTION,
+            "action_type": "scientific_claim",
+            "sources": [{"label": "draft hypothesis", "confidence": 0.7, "verified": False}],
+            "self_check": {
+                "summary": "Hypothesis only.",
+                "confidence": 0.5,
+                "assumptions": [],
+                "uncertainties": ["no experiment yet"],
+                "falsifiers": ["controlled observation fails"],
+            },
+            "method": "draft literature comparison",
+        }
+        decision = evaluate_action(action)
+        self.assertEqual(decision["status"], "BLOCK")
+        self.assertIn("scientific_claim_requires_verified_evidence", decision["reasons"])
+
+
+class OntologyTests(unittest.TestCase):
+    def test_observation_envelope_prov_and_pac_reasoner(self) -> None:
+        envelope = ObservationEnvelope(
+            observer="debugtyr",
+            subject="Agent Safety Gate",
+            claim="Verified evidence should be required before publishing scientific claims.",
+            kind="process",
+            claim_type="scientific_claim",
+            evidence=[{"label": "local test", "source": "tests", "verified": True, "confidence": 0.91}],
+            confidence=0.82,
+            provenance={"method": "unit test"},
+            constraints={"falsifiers": ["gate approves unverified scientific claim"]},
+        )
+        graph = OntologyGraph()
+        record = graph.add_envelope(envelope)
+        reasoning = PACReasoner().evaluate(envelope)
+        self.assertTrue(record["validation"]["conforms"])
+        self.assertEqual(record["dolceType"], "dolce:perdurant")
+        self.assertEqual(reasoning["status"], "APPROVE")
+        self.assertEqual(record["provO"]["schemaVersion"], "obsai.prov_o_graph.v1")
+
+    def test_observation_store_persists_envelope_in_sqlite(self) -> None:
+        envelope = ObservationEnvelope(
+            observer="debugtyr",
+            subject="ResidueOS Lite",
+            claim="Sponsors copy must avoid absolute safety claims.",
+            kind="artifact",
+            evidence=[{"label": "profile draft", "source": "docs", "verified": True, "confidence": 0.8}],
+            confidence=0.75,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "observations.sqlite"
+            store = ObservationEnvelopeStore(db_path)
+            stored = store.insert_envelope(envelope)
+            fetched = store.get_envelope(envelope.envelope_id)
+            self.assertEqual(stored["id"], envelope.envelope_id)
+            self.assertIsNotNone(fetched)
+            self.assertEqual(fetched["envelope"]["dolceType"], "dolce:endurant")
+            self.assertEqual(len(store.list_envelopes()), 1)
+
 
 class TransductionTests(unittest.TestCase):
     def test_signal_only_activates_authorized_matching_receptor(self) -> None:
@@ -154,6 +215,60 @@ class CliTests(unittest.TestCase):
         world_payload = json.loads(world_result.stdout)
         self.assertEqual(world_payload["schemaVersion"], "obsai.world_simulation.v1")
         self.assertEqual(world_payload["ticks"], 4)
+
+    def test_demo_agent_action_blocks_delete_and_allows_readme_summary(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            delete_result = subprocess.run(
+                [
+                    sys.executable,
+                    "demo_agent_action.py",
+                    "--action",
+                    "delete project folder",
+                    "--witness-dir",
+                    tmp,
+                ],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            delete_payload = json.loads(delete_result.stdout)
+            self.assertEqual(delete_payload["decision"], "BLOCK")
+            self.assertIn("high_risk_low_reversibility", delete_payload["evidence"])
+            self.assertTrue(Path(delete_payload["witness_log"]).exists())
+
+            summary_result = subprocess.run(
+                [
+                    sys.executable,
+                    "demo_agent_action.py",
+                    "--action",
+                    "summarize README",
+                    "--witness-dir",
+                    tmp,
+                ],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            summary_payload = json.loads(summary_result.stdout)
+            self.assertEqual(summary_payload["decision"], "APPROVE")
+
+    def test_starter_benchmark_reports_action_gate_metrics(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, "benchmarks/run_agent_action_benchmark.py"],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schemaVersion"], "obsai.agent_action_benchmark.v1")
+        self.assertEqual(payload["scenario_count"], 6)
+        self.assertGreaterEqual(payload["accuracy"], 0.8)
+        self.assertEqual(payload["false_blocks"], 0)
 
 
 if __name__ == "__main__":

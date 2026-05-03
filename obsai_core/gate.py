@@ -75,6 +75,15 @@ def _receptor_state(action: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_scientific_claim(action: dict[str, Any]) -> bool:
+    tags = {tag.lower() for tag in _policy_tags(action)}
+    return (
+        _action_type(action) == "scientific_claim"
+        or str(action.get("claim_type") or action.get("claimType") or "").lower() == "scientific_claim"
+        or "scientific_claim" in tags
+    )
+
+
 def score_sources(action: dict[str, Any]) -> float:
     sources = _sources(action)
     if not sources:
@@ -194,6 +203,15 @@ def compute_residue(action: dict[str, Any]) -> dict[str, Any]:
     if "requires_human_approval" in policy_tags and not human_reviewers:
         policy_violations.append("human_approval_required")
 
+    if _is_scientific_claim(action):
+        if not any(source.get("verified") for source in sources):
+            policy_violations.append("scientific_claim_without_verified_evidence")
+        method = _field(action, "method", "protocol", default=None) or check.get("method") or check.get("protocol")
+        if not method:
+            unresolved.append("scientific_claim_missing_method")
+        if not _list(check.get("falsifiers")):
+            unresolved.append("scientific_claim_missing_falsifier")
+
     if receptor["required"] and not receptor["id"]:
         policy_violations.append("missing_authorized_receptor")
     elif receptor["id"] and not receptor["authorized"]:
@@ -261,6 +279,10 @@ def evaluate_action(action: dict[str, Any], config: dict[str, Any] | None = None
     if residue["R"] >= cfg["residue_block"]:
         status = "BLOCK"
         reasons.append("critical_residue")
+
+    if "scientific_claim_without_verified_evidence" in residue["policy_violations"]:
+        status = "BLOCK"
+        reasons.append("scientific_claim_requires_verified_evidence")
 
     if any(item in residue["policy_violations"] for item in {"missing_authorized_receptor", "receptor_not_authorized"}):
         status = "BLOCK"
